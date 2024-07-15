@@ -1,0 +1,107 @@
+#Parameters are user defined values needed to create AWS resourcesSSHLocation
+Parameters:
+  DevLocation:
+    Description: The IP address range that develoepr can use to connect RDS and EC2 instances
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC that the whole stack will be launched in.
+  AvailabilityZone:
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+    Description: Availability zeon to launch the instance in
+  RDSInstanceType:
+    Description: RDS instance type
+    Type: String
+    Default: db.t3.medium
+    AllowedValues:
+      - db.t3.medium
+      - db.t3.large
+    ConstraintDescription: must be a valid RDS instance type.
+  RDSMonitoringRoleArn:
+    Description: The ARN of the IAM role to use for RDS monitoring
+    Type: String
+    MinLength: '20'
+    MaxLength: '2048'
+    AllowedPattern: 'arn:aws:iam::\d{12}:role/.*'
+    ConstraintDescription: Must be a valid IAM role ARN
+  DBUsername:
+    NoEcho: 'true'
+    Description: Username for rds access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+  DBPassword:
+    NoEcho: 'true'
+    Description: Password for rds access
+    Type: String
+    MinLength: '1'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: Must contain only alphanumeric characters
+
+#Resources to be created on AWS
+Resources:
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: rds
+      GroupDescription: RDS Security Group
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: !Ref DevLocation
+          Description: Allow connection from whitelist
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+
+  RDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      AllocatedStorage: '20'
+      StorageType: gp3
+      BackupRetentionPeriod: 1
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: false
+      DeletionProtection: true
+      EnablePerformanceInsights: true
+      MonitoringInterval: 60
+      MonitoringRoleArn: !Ref RDSMonitoringRoleArn
+      PerformanceInsightsRetentionPeriod: 7
+      EnableCloudwatchLogsExports: 
+        - audit
+        - general
+        - error
+        - slowquery
+      DBInstanceClass: !Ref RDSInstanceType
+      Engine: mariadb
+      EngineVersion: 10.6.18
+      DBInstanceIdentifier: rds
+      DBName: rds
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !Ref DBPassword
+      PubliclyAccessible: true
+      AvailabilityZone: !Ref AvailabilityZone
+      VPCSecurityGroups: 
+        - !GetAtt RDSSecurityGroup.GroupId
+
+Outputs:
+  RDSAddress:
+    Description: The address of the RDS instance
+    Value: !GetAtt RDS.Endpoint.Address
+  RDSUsername:
+    Description: The username for the RDS instance
+    Value: !Ref DBUsername
+  RDSPassword:
+    Description: The password for the RDS instance
+    Value: !Ref DBPassword
