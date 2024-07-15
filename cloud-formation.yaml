@@ -1,0 +1,253 @@
+#Parameters are user defined values needed to create AWS resources
+Parameters:
+  EC2InstanceType:
+      Description: Server EC2 instance type
+      Type: String
+      Default: t4g.small
+      AllowedValues:
+        - t4g.nano
+        - t4g.micro
+        - t4g.small
+        - t4g.medium
+        - t4g.large
+      ConstraintDescription: must be a valid EC2 instance type.
+  EC2AMI:
+    Description: EC2 AMI to use for the instance
+    Type: 'AWS::EC2::Image::Id'
+  EC2KeyPairName:
+      Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+      Type: 'AWS::EC2::KeyPair::KeyName'
+      ConstraintDescription: Can contain only ASCII characters.
+  SSHLocation:
+    Description: The IP address range that can be used to SSH to the EC2 instances
+    Type: String
+    MinLength: '9'
+    MaxLength: '18'
+    Default: 0.0.0.0/0
+    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
+    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC that the whole stack will be launched in.
+  SubnetIds:
+    Type: 'List<AWS::EC2::Subnet::Id>'
+    Description: At least two public subnets in different Availability Zones in the selected VPC
+  SSLCertificateArn:
+    Type: String
+    Description: The ARN of the SSL certificate to use for HTTPS
+  # DBName:
+  #   Default: MyDatabase
+  #   Description: MySQL database name
+  #   Type: String
+  #   MinLength: '1'
+  #   MaxLength: '64'
+  #   AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+  #   ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+  # DBUsername:
+  #   NoEcho: 'true'
+  #   Description: Username for MySQL database access
+  #   Type: String
+  #   MinLength: '1'
+  #   MaxLength: '16'
+  #   AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+  #   ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+  # DBPassword:
+  #   NoEcho: 'true'
+  #   Description: Password for MySQL database access
+  #   Type: String
+  #   MinLength: '1'
+  #   MaxLength: '41'
+  #   AllowedPattern: '[a-zA-Z0-9]*'
+  #   ConstraintDescription: Must contain only alphanumeric characters
+  # DBRootPassword:
+  #   NoEcho: 'true'
+  #   Description: Root password for MySQL
+  #   Type: String
+  #   MinLength: '1'
+  #   MaxLength: '41'
+  #   AllowedPattern: '[a-zA-Z0-9]*'
+  #   ConstraintDescription: Must contain only alphanumeric characters
+
+#Resources to be created on AWS
+Resources:
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: web-server-alb
+      GroupDescription: ALB Security Group
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTP traffic
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS traffic
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: web-server
+      GroupDescription: Web Server Security Group
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId
+          Description: Allow HTTP traffic from ALB
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref SSHLocation
+          Description: Allow SSH traffic from whitelist
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+  
+  WebServerTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: web-server-target-group
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 15
+      HealthyThresholdCount: 5
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: '200'
+      Port: 80
+      Protocol: HTTP
+      TargetGroupAttributes:
+      - Key: deregistration_delay.timeout_seconds
+        Value: '30'
+      VpcId: !Ref VPCId
+
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internet-facing
+      Subnets: !Ref SubnetIds
+      SecurityGroups:
+        - !GetAtt ALBSecurityGroup.GroupId
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: '60'
+        - Key: client_keep_alive.seconds
+          Value: '3600'
+        - Key: access_logs.s3.enabled
+          Value: 'false'
+
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebServerTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref SSLCertificateArn
+
+  # TODO: remove the following resources
+  TestALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref WebServerTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties: 
+      LaunchTemplateName: !Sub ${AWS::StackName}-launch-template
+      LaunchTemplateData:
+        ImageId: !Ref EC2AMI
+        InstanceType: !Ref EC2InstanceType
+        KeyName: !Ref EC2KeyPairName
+        SecurityGroupIds: 
+          - !Ref WebServerSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y httpd
+            systemctl start httpd
+            systemctl enable httpd
+            echo "<h1>Hello World!</h1>" > /var/www/html/index.html
+  
+  WebServerGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      MaxSize: '1'
+      DesiredCapacity: '1'
+      MinSize: '1'
+      TargetGroupARNs:
+        - !Ref WebServerTargetGroup
+      VPCZoneIdentifier: !Ref SubnetIds
+      DefaultInstanceWarmup: 30
+
+  # WebServerEC2Instance:
+  #     Type: AWS::EC2::Instance
+  #     Properties:
+  #       InstanceType: !Ref EC2InstanceType
+  #       SubnetId: !Ref SubnetId
+  #       SecurityGroupIds:
+  #         - !Ref EC2SecurityGroup
+  #       # IamInstanceProfile:
+  #       #   Name: !Ref ServerProfile
+  #       ImageId: !Ref AMI
+  #       KeyName: !Ref Key
+  #       BlockDeviceMappings:
+  #         - DeviceName: /dev/xvda
+  #           Ebs:
+  #             VolumeSize: '20'
+  #             VolumeType: gp3
+  #             Iops: '3000'
+  #             DeleteOnTermination: 'true'
+  #             Encrypted: 'false'
+  #       UserData: #Script to install Codedeploy agent and enable it
+  #         Fn::Base64: !Sub |
+  #           #!/bin/bash
+  #           sudo yum update -y
+  #           sudo yum install ruby -y
+  #           sudo yum install wget -y
+  #           cd /home/ec2-user
+  #           wget https://aws-codedeploy-${AWS::Region}.s3.${AWS::Region}.amazonaws.com/latest/install
+  #           chmod +x ./install
+  #           sudo ./install auto
+  #           sudo systemctl enable codedeploy-agent
+  #           sudo systemctl start codedeploy-agent
+
+  # WebServerElasticIP:
+  #   Type: AWS::EC2::EIP
+  #   Properties:
+  #     InstanceId: !Ref WebServerEC2Instance
+
+Outputs:
+  LoadBalancer:
+    Description: A reference to the Application Load Balancer
+    Value: !Ref ApplicationLoadBalancer
+
+  LoadBalancerUrl:
+    Description: The URL of the ALB
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
