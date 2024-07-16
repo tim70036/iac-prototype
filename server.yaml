@@ -1,5 +1,7 @@
-#Parameters are user defined values needed to create AWS resourcesSSHLocation
 Parameters:
+  NetworkStack: 
+    Type: String
+    Description: The name of the network stack to use. If you have not created a network stack, create one first.
   WebServerInstanceType:
       Description: Web Server EC2 instance type
       Type: String
@@ -29,73 +31,8 @@ Parameters:
       Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
       Type: 'AWS::EC2::KeyPair::KeyName'
       ConstraintDescription: Can contain only ASCII characters.
-  DevLocation:
-    Description: The IP address range that develoepr can use to connect RDS and EC2 instances
-    Type: String
-    MinLength: '9'
-    MaxLength: '18'
-    Default: 0.0.0.0/0
-    AllowedPattern: '(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})/(\d{1,2})'
-    ConstraintDescription: Must be a valid IP CIDR range of the form x.x.x.x/x
-  VPCId:
-    Type: AWS::EC2::VPC::Id
-    Description: VPC that the whole stack will be launched in.
-  SubnetIds:
-    Type: 'List<AWS::EC2::Subnet::Id>'
-    Description: At least two public subnets in different Availability Zones in the selected VPC
-  AvailabilityZone:
-    Type: 'AWS::EC2::AvailabilityZone::Name'
-    Description: Availability zeon to launch the instance in
-  SSLCertificateArn:
-    Type: String
-    Description: The ARN of the SSL certificate to use for HTTPS
 
-#Resources to be created on AWS
 Resources:
-  ALBSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: web-server-alb
-      GroupDescription: ALB Security Group
-      VpcId: !Ref VPCId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-          Description: Allow HTTP traffic
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: 0.0.0.0/0
-          Description: Allow HTTPS traffic
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-          Description: Allow all outbound traffic
-
-  WebServerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupName: web-server
-      GroupDescription: Web Server Security Group
-      VpcId: !Ref VPCId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId
-          Description: Allow HTTP traffic from ALB
-        - IpProtocol: tcp
-          FromPort: 22
-          ToPort: 22
-          CidrIp: !Ref DevLocation
-          Description: Allow SSH traffic from whitelist
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          CidrIp: 0.0.0.0/0
-          Description: Allow all outbound traffic
-  
   WebServerTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
@@ -114,7 +51,8 @@ Resources:
       TargetGroupAttributes:
       - Key: deregistration_delay.timeout_seconds
         Value: '30'
-      VpcId: !Ref VPCId
+      VpcId:
+        Fn::ImportValue: !Sub '${NetworkStack}-VPCId'
 
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -122,9 +60,9 @@ Resources:
       Name: web-server-alb
       Type: application
       Scheme: internet-facing
-      Subnets: !Ref SubnetIds
+      Subnets: !Split [',', Fn::ImportValue: !Sub '${NetworkStack}-SubnetIds']
       SecurityGroups:
-        - !GetAtt ALBSecurityGroup.GroupId
+        - Fn::ImportValue: !Sub '${NetworkStack}-ALBSecurityGroup'
       LoadBalancerAttributes:
         - Key: idle_timeout.timeout_seconds
           Value: '60'
@@ -143,7 +81,8 @@ Resources:
       Port: 443
       Protocol: HTTPS
       Certificates:
-        - CertificateArn: !Ref SSLCertificateArn
+        - CertificateArn:
+          Fn::ImportValue: !Sub '${NetworkStack}-SSLCertificateArn'
 
   # TODO: remove the following resources
   TestALBListener:
@@ -165,7 +104,7 @@ Resources:
         InstanceType: !Ref WebServerInstanceType
         KeyName: !Ref EC2KeyPairName
         SecurityGroupIds: 
-          - !Ref WebServerSecurityGroup
+          - Fn::ImportValue: !Sub '${NetworkStack}-WebServerSecurityGroup'
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
@@ -194,7 +133,7 @@ Resources:
       TargetGroupARNs:
         - !Ref WebServerTargetGroup
       AvailabilityZones:
-        - !Ref AvailabilityZone
+        - Fn::ImportValue: !Sub '${NetworkStack}-AvailabilityZone'
       DefaultInstanceWarmup: 30
 
 
@@ -237,7 +176,7 @@ Resources:
   #     InstanceId: !Ref WebServerEC2Instance
 
 Outputs:
-  WebServerUrl:
+  WebServerAddress:
     Description: The URL of the web server
     Value: !Join
       - http://

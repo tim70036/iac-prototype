@@ -1,0 +1,166 @@
+# TODO: rds security group
+Parameters:
+  NetworkStack: 
+    Type: String
+    Description: The name of the network stack to use. If you have not created a network stack, create one first.
+  RDSInstanceType:
+    Description: RDS instance type
+    Type: String
+    Default: db.t3.medium
+    AllowedValues:
+      - db.t3.medium
+      - db.t3.large
+    ConstraintDescription: must be a valid RDS instance type.
+  DBName:
+    Description: Name of the database to create
+    Type: String
+    MinLength: '1'
+    MaxLength: '63'
+    AllowedPattern: '^$|^[a-zA-Z]{1}(?:-?[a-zA-Z0-9]){0,62}$*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+  DBUsername:
+    NoEcho: 'true'
+    Description: Username for rds access
+    Type: String
+    MinLength: '1'
+    MaxLength: '16'
+    AllowedPattern: '[a-zA-Z][a-zA-Z0-9]*'
+    ConstraintDescription: Must begin with a letter and contain only alphanumeric characters
+  DBPassword:
+    NoEcho: 'true'
+    Description: Password for rds access
+    Type: String
+    MinLength: '1'
+    MaxLength: '41'
+    AllowedPattern: '[a-zA-Z0-9]*'
+    ConstraintDescription: Must contain only alphanumeric characters
+
+#Resources to be created on AWS
+Resources:
+  RDSSecret:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Sub 'rds-${DBName}-secret'
+      Description: RDS Secret
+      SecretString: !Sub '{"username": "${DBUsername}", "password": "${DBPassword}"}'
+
+  RDSMonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rds-m-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RDSMonitoringRolePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:PutRetentionPolicy
+                Resource: 'arn:aws:logs:*:*:log-group:RDS*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                  - logs:GetLogEvents
+                Resource: 'arn:aws:logs:*:*:log-group:RDS*:log-stream:*'
+
+  RDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      Engine: mariadb
+      EngineVersion: 10.6.18
+      AllocatedStorage: '20'
+      StorageType: gp3
+      BackupRetentionPeriod: 1
+      AllowMajorVersionUpgrade: false
+      AutoMinorVersionUpgrade: false
+      DeletionProtection: false # TODO: set to true
+      EnablePerformanceInsights: true
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt RDSMonitoringRole.Arn
+      PerformanceInsightsRetentionPeriod: 7
+      EnableCloudwatchLogsExports: 
+        - audit
+        - general
+        - error
+        - slowquery
+      DBInstanceClass: !Ref RDSInstanceType
+      DBInstanceIdentifier: !Ref DBName
+      DBName: !Ref DBName
+      PubliclyAccessible: true
+      AvailabilityZone:
+        Fn::ImportValue: !Sub '${NetworkStack}-AvailabilityZone'
+      VPCSecurityGroups: 
+        - Fn::ImportValue: !Sub '${NetworkStack}-DevWhitelistSecurityGroup'
+
+      MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSSecret, ':SecretString:username}}' ]]
+      MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSSecret, ':SecretString:password}}' ]]
+
+  RDSProxyRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rds-proxy-role
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: rds.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RDSProxyRolePolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:GetSecretValue
+                  - kms:Decrypt
+                Resource: '*'
+
+  RDSProxy:
+    Type: AWS::RDS::DBProxy
+    Properties:
+      Auth:
+        - AuthScheme: SECRETS
+          SecretArn: !Ref RDSSecret
+          ClientPasswordAuthType: MYSQL_NATIVE_PASSWORD
+          IAMAuth: DISABLED
+      DBProxyName: !Sub '${DBName}-rds-proxy'
+      EngineFamily: MYSQL
+      IdleClientTimeout: 180
+      RequireTLS: false
+      RoleArn: !GetAtt RDSProxyRole.Arn
+      VpcSubnetIds: !Split [',', Fn::ImportValue: !Sub '${NetworkStack}-SubnetIds']
+      VpcSecurityGroupIds: 
+        - Fn::ImportValue: !Sub '${NetworkStack}-DevWhitelistSecurityGroup'
+
+  RDSProxyTargetGroup:
+    Type: AWS::RDS::DBProxyTargetGroup
+    Properties:
+      DBProxyName: !Ref RDSProxy
+      TargetGroupName: default
+      ConnectionPoolConfigurationInfo: 
+        MaxConnectionsPercent: 100
+        MaxIdleConnectionsPercent: 50
+        ConnectionBorrowTimeout: 120
+
+Outputs:
+  RDSAddress:
+    Description: The address of the RDS instance
+    Value: !GetAtt RDS.Endpoint.Address
+  RDSProxyAddress:
+    Description: The address of the RDS proxy
+    Value: !GetAtt RDSProxy.Endpoint
+  RDSSecretArn:
+    Description: The ARN of the RDS secret
+    Value: !Ref RDSSecret

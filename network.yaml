@@ -1,0 +1,118 @@
+Description:
+  This file contains the network resources for the stack. It includes the VPC, subnets, and security groups.
+  Create this stack before creating other stacks that depend on it.
+
+Parameters:
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC that the whole stack will be launched in.
+  AvailabilityZone:
+    Type: 'AWS::EC2::AvailabilityZone::Name'
+    Description: Availability zeon to launch the instance in
+  SubnetIds:
+    Type: 'List<AWS::EC2::Subnet::Id>'
+    Description: At least two public subnets in different Availability Zones in the selected VPC
+  SSLCertificateArn:
+    Type: String
+    Description: The ARN of the SSL certificate to use for HTTPS
+
+Resources:
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: web-server-alb
+      GroupDescription: ALB Security Group
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTP traffic
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS traffic
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+
+  WebServerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: web-server
+      GroupDescription: Web Server Security Group
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt ALBSecurityGroup.GroupId
+          Description: Allow HTTP traffic from ALB
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+
+  DevWhitelistSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: dev-whitelist
+      GroupDescription: Dev Whitelist Security Group
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 61.221.55.46/32
+          Description: Allow SSH traffic from whitelist
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 61.221.55.46/32
+          Description: Allow SQL traffic from whitelist
+
+Outputs:
+  VPCId:
+    Description: The ID of the VPC
+    Value: !Ref VPCId
+    Export:
+      Name: !Sub "${AWS::StackName}-VPCId"
+
+  AvailabilityZone:
+    Description: The Availability Zone
+    Value: !Ref AvailabilityZone
+    Export:
+      Name: !Sub "${AWS::StackName}-AvailabilityZone"
+
+  SubnetIds:
+    Description: The IDs of the subnets
+    Value: !Join [',', !Ref SubnetIds]
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetIds"
+
+  SSLCertificateArn:
+    Description: The ARN of the SSL certificate
+    Value: !Ref SSLCertificateArn
+    Export:
+      Name: !Sub "${AWS::StackName}-SSLCertificateArn"
+
+  ALBSecurityGroup:
+    Description: The security group for the Application Load Balancer
+    Value: !Ref ALBSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-ALBSecurityGroup"
+
+  WebServerSecurityGroup:
+    Description: The security group for the web server instances
+    Value: !Ref WebServerSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-WebServerSecurityGroup"
+
+  DevWhitelistSecurityGroup:
+    Description: The security group for the developer whitelist
+    Value: !Ref DevWhitelistSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-DevWhitelistSecurityGroup"
