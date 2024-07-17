@@ -9,7 +9,7 @@ Parameters:
     Default: db.t3.medium
     AllowedValues:
       - db.t3.medium
-      - db.t3.large
+      - db.m6gd.large
     ConstraintDescription: must be a valid RDS instance type.
   DBName:
     Description: Name of the database to create
@@ -106,65 +106,10 @@ Resources:
       MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSSecret, ':SecretString:username}}' ]]
       MasterUserPassword: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSSecret, ':SecretString:password}}' ]]
 
-  RDSProxyRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: rds-proxy-role
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: rds.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: RDSProxyRolePolicy
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - secretsmanager:GetSecretValue
-                  - kms:Decrypt
-                Resource: '*'
-
-  RDSProxy:
-    Type: AWS::RDS::DBProxy
-    Properties:
-      Auth:
-        - AuthScheme: SECRETS
-          SecretArn: !Ref RDSSecret
-          ClientPasswordAuthType: MYSQL_NATIVE_PASSWORD
-          IAMAuth: DISABLED
-      DBProxyName: !Sub '${DBName}-rds-proxy'
-      EngineFamily: MYSQL
-      IdleClientTimeout: 180
-      RequireTLS: false
-      RoleArn: !GetAtt RDSProxyRole.Arn
-      VpcSubnetIds: !Split [',', Fn::ImportValue: !Sub '${NetworkStack}-SubnetIds']
-      VpcSecurityGroupIds: 
-        - Fn::ImportValue: !Sub '${NetworkStack}-RDSProxySecurityGroup'
-        - Fn::ImportValue: !Sub '${NetworkStack}-DevWhitelistSecurityGroup'
-        
-  RDSProxyTargetGroup:
-    Type: AWS::RDS::DBProxyTargetGroup
-    Properties:
-      DBProxyName: !Ref RDSProxy
-      TargetGroupName: default
-      DBInstanceIdentifiers: 
-        - !Ref RDS
-      ConnectionPoolConfigurationInfo: 
-        MaxConnectionsPercent: 100
-        MaxIdleConnectionsPercent: 50
-        ConnectionBorrowTimeout: 120
-
 Outputs:
   RDSAddress:
     Description: The address of the RDS instance
     Value: !GetAtt RDS.Endpoint.Address
-  RDSProxyAddress:
-    Description: The address of the RDS proxy
-    Value: !GetAtt RDSProxy.Endpoint
   RDSSecretArn:
     Description: The ARN of the RDS secret
     Value: !Ref RDSSecret

@@ -2,6 +2,7 @@ Parameters:
   NetworkStack: 
     Type: String
     Description: The name of the network stack to use. If you have not created a network stack, create one first.
+    Default: network-stack
   WebServerInstanceType:
       Description: Web Server EC2 instance type
       Type: String
@@ -82,7 +83,7 @@ Resources:
       Protocol: HTTPS
       Certificates:
         - CertificateArn:
-          Fn::ImportValue: !Sub '${NetworkStack}-SSLCertificateArn'
+            Fn::ImportValue: !Sub ${NetworkStack}-SSLCertificateArn
 
   # TODO: remove the following resources
   TestALBListener:
@@ -103,6 +104,15 @@ Resources:
         ImageId: !Ref EC2AMI
         InstanceType: !Ref WebServerInstanceType
         KeyName: !Ref EC2KeyPairName
+        BlockDeviceMappings:
+          - DeviceName: /dev/sda1
+            Ebs:
+              DeleteOnTermination: true
+              Encrypted: false
+              VolumeType: gp3
+              Iops: 3000
+              Throughput: 125
+              VolumeSize: 20
         SecurityGroupIds: 
           - Fn::ImportValue: !Sub '${NetworkStack}-WebServerSecurityGroup'
         UserData:
@@ -124,6 +134,7 @@ Resources:
   WebServerGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
+      AutoScalingGroupName: web-server-asg
       LaunchTemplate:
         LaunchTemplateId: !Ref LaunchTemplate
         Version: !GetAtt LaunchTemplate.LatestVersionNumber
@@ -135,50 +146,36 @@ Resources:
       AvailabilityZones:
         - Fn::ImportValue: !Sub '${NetworkStack}-AvailabilityZone'
       DefaultInstanceWarmup: 30
+      Tags: 
+        - Key: Name
+          Value: web-server
+          PropagateAtLaunch: true
 
+  PayServerEC2:
+    Type: AWS::EC2::Instance
+    Properties:
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      InstanceType: !Ref PayServerInstanceType
+      AvailabilityZone:
+        Fn::ImportValue: !Sub '${NetworkStack}-AvailabilityZone'
+      SecurityGroupIds:
+        - Fn::ImportValue: !Sub '${NetworkStack}-PayServerSecurityGroup'
+        - Fn::ImportValue: !Sub '${NetworkStack}-DevWhitelistSecurityGroup'
+      Tags:
+        - Key: Name
+          Value: pay-server
 
-
-  # WebServerEC2Instance:
-  #     Type: AWS::EC2::Instance
-  #     Properties:
-  #       InstanceType: !Ref WebServerInstanceType
-  #       SubnetId: !Ref SubnetId
-  #       SecurityGroupIds:
-  #         - !Ref EC2SecurityGroup
-  #       # IamInstanceProfile:
-  #       #   Name: !Ref ServerProfile
-  #       ImageId: !Ref AMI
-  #       KeyName: !Ref Key
-  #       BlockDeviceMappings:
-  #         - DeviceName: /dev/xvda
-  #           Ebs:
-  #             VolumeSize: '20'
-  #             VolumeType: gp3
-  #             Iops: '3000'
-  #             DeleteOnTermination: 'true'
-  #             Encrypted: 'false'
-  #       UserData: #Script to install Codedeploy agent and enable it
-  #         Fn::Base64: !Sub |
-  #           #!/bin/bash
-  #           sudo yum update -y
-  #           sudo yum install ruby -y
-  #           sudo yum install wget -y
-  #           cd /home/ec2-user
-  #           wget https://aws-codedeploy-${AWS::Region}.s3.${AWS::Region}.amazonaws.com/latest/install
-  #           chmod +x ./install
-  #           sudo ./install auto
-  #           sudo systemctl enable codedeploy-agent
-  #           sudo systemctl start codedeploy-agent
-
-  # WebServerElasticIP:
-  #   Type: AWS::EC2::EIP
-  #   Properties:
-  #     InstanceId: !Ref WebServerEC2Instance
+  PayServerEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      InstanceId: !Ref PayServerEC2
 
 Outputs:
   WebServerAddress:
     Description: The URL of the web server
-    Value: !Join
-      - http://
-      - !GetAtt ApplicationLoadBalancer.DNSName
-      - /index.php
+    Value: !Sub 'http://${ApplicationLoadBalancer.DNSName}/index.php'
+  PayServerAddress:
+    Description: The URL of the pay server
+    Value: !Sub 'http://${PayServerEIP.PublicIp}/index.php'

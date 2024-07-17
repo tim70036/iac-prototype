@@ -56,22 +56,28 @@ Resources:
           CidrIp: 0.0.0.0/0
           Description: Allow all outbound traffic
 
-  RDSProxySecurityGroup:
+  PayServerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: rds-proxy
-      GroupDescription: RDS Proxy Security Group
+      GroupName: pay-server
+      GroupDescription: Pay Server Security Group
       VpcId: !Ref VPCId
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 3306
-          ToPort: 3306
+          FromPort: 80
+          ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: Allow SQL traffic from everywhere
+          Description: Allow HTTP traffic
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS traffic
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
           Description: Allow all outbound traffic
+
 
   RDSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -83,8 +89,13 @@ Resources:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
-          SourceSecurityGroupId: !GetAtt RDSProxySecurityGroup.GroupId
-          Description: Allow SQL traffic from RDS Proxy
+          SourceSecurityGroupId: !GetAtt WebServerSecurityGroup.GroupId
+          Description: Allow SQL traffic from web server
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !GetAtt DevWhitelistSecurityGroup.GroupId
+          Description: Allow SQL traffic from whitelist
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
@@ -145,11 +156,11 @@ Outputs:
     Export:
       Name: !Sub "${AWS::StackName}-WebServerSecurityGroup"
 
-  RDSProxySecurityGroup:
-    Description: The security group for the RDS Proxy
-    Value: !Ref RDSProxySecurityGroup
+  PayServerSecurityGroup:
+    Description: The security group for the pay server instance
+    Value: !Ref PayServerSecurityGroup
     Export:
-      Name: !Sub "${AWS::StackName}-RDSProxySecurityGroup"
+      Name: !Sub "${AWS::StackName}-PayServerSecurityGroup"
 
   RDSSecurityGroup:
     Description: The security group for the RDS instance
