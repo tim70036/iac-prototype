@@ -56,6 +56,40 @@ Resources:
           CidrIp: 0.0.0.0/0
           Description: Allow all outbound traffic
 
+  RDSProxySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: rds-proxy
+      GroupDescription: RDS Proxy Security Group
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 0.0.0.0/0
+          Description: Allow SQL traffic from everywhere
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: rds
+      GroupDescription: RDS Security Group
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !GetAtt RDSProxySecurityGroup.GroupId
+          Description: Allow SQL traffic from RDS Proxy
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+
   DevWhitelistSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -110,6 +144,18 @@ Outputs:
     Value: !Ref WebServerSecurityGroup
     Export:
       Name: !Sub "${AWS::StackName}-WebServerSecurityGroup"
+
+  RDSProxySecurityGroup:
+    Description: The security group for the RDS Proxy
+    Value: !Ref RDSProxySecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-RDSProxySecurityGroup"
+
+  RDSSecurityGroup:
+    Description: The security group for the RDS instance
+    Value: !Ref RDSSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-RDSSecurityGroup"
 
   DevWhitelistSecurityGroup:
     Description: The security group for the developer whitelist

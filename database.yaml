@@ -100,6 +100,7 @@ Resources:
       AvailabilityZone:
         Fn::ImportValue: !Sub '${NetworkStack}-AvailabilityZone'
       VPCSecurityGroups: 
+        - Fn::ImportValue: !Sub '${NetworkStack}-RDSSecurityGroup'
         - Fn::ImportValue: !Sub '${NetworkStack}-DevWhitelistSecurityGroup'
 
       MasterUsername: !Join ['', ['{{resolve:secretsmanager:', !Ref RDSSecret, ':SecretString:username}}' ]]
@@ -142,13 +143,16 @@ Resources:
       RoleArn: !GetAtt RDSProxyRole.Arn
       VpcSubnetIds: !Split [',', Fn::ImportValue: !Sub '${NetworkStack}-SubnetIds']
       VpcSecurityGroupIds: 
+        - Fn::ImportValue: !Sub '${NetworkStack}-RDSProxySecurityGroup'
         - Fn::ImportValue: !Sub '${NetworkStack}-DevWhitelistSecurityGroup'
-
+        
   RDSProxyTargetGroup:
     Type: AWS::RDS::DBProxyTargetGroup
     Properties:
       DBProxyName: !Ref RDSProxy
       TargetGroupName: default
+      DBInstanceIdentifiers: 
+        - !Ref RDS
       ConnectionPoolConfigurationInfo: 
         MaxConnectionsPercent: 100
         MaxIdleConnectionsPercent: 50
