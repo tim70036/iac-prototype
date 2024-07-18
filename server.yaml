@@ -85,17 +85,6 @@ Resources:
         - CertificateArn:
             Fn::ImportValue: !Sub ${NetworkStack}-SSLCertificateArn
 
-  # TODO: remove the following resources
-  TestALBListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref WebServerTargetGroup
-      LoadBalancerArn: !Ref ApplicationLoadBalancer
-      Port: 80
-      Protocol: HTTP
-
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties: 

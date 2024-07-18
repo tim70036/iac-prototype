@@ -25,11 +25,6 @@ Resources:
       VpcId: !Ref VPCId
       SecurityGroupIngress:
         - IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-          Description: Allow HTTP traffic
-        - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
@@ -67,7 +62,7 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
-          Description: Allow HTTP traffic
+          Description: Allow HTTP traffic # TODO: remove this rule
         - IpProtocol: tcp
           FromPort: 443
           ToPort: 443
@@ -94,6 +89,11 @@ Resources:
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
+          SourceSecurityGroupId: !GetAtt PayServerSecurityGroup.GroupId
+          Description: Allow SQL traffic from pay server
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
           SourceSecurityGroupId: !GetAtt DevWhitelistSecurityGroup.GroupId
           Description: Allow SQL traffic from whitelist
       SecurityGroupEgress:
@@ -112,12 +112,42 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: 61.221.55.46/32
-          Description: Allow SSH traffic from whitelist
+          Description: PQS
         - IpProtocol: tcp
           FromPort: 3306
           ToPort: 3306
           CidrIp: 61.221.55.46/32
-          Description: Allow SQL traffic from whitelist
+          Description: PQS
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 111.246.104.207/32
+          Description: PQS
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 111.246.104.207/32
+          Description: PQS
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 210.68.209.112/32
+          Description: System
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 210.68.209.112/32
+          Description: System
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 210.68.209.113/32
+          Description: System
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: 210.68.209.113/32
+          Description: System
 
 Outputs:
   VPCId:
